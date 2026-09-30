@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Student or Admin user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "targetScore": { "type": "number" },
+        "studyStreak": { "type": "number" },
+        "joinedDate": { "type": "string" },
+        "lastActiveDate": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "ExamAttempt": {
+      "title": "Exam Attempt",
+      "description": "Student attempt for a STEP model or simulated exam",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "modelId": { "type": "string" },
+        "modelTitle": { "type": "string" },
+        "attemptNumber": { "type": "number" },
+        "examType": { "type": "string" },
+        "status": { "type": "string", "enum": ["in_progress", "completed"] },
+        "startedAt": { "type": "string" },
+        "completedAt": { "type": "string" },
+        "scorePercent": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "incorrectCount": { "type": "number" },
+        "unansweredCount": { "type": "number" },
+        "currentQuestionIndex": { "type": "number" },
+        "timeRemainingSeconds": { "type": "number" },
+        "totalTimeSeconds": { "type": "number" }
+      },
+      "required": ["id", "userId", "modelId", "status", "startedAt"]
+    },
+    "Mistake": {
+      "title": "Mistake Item",
+      "description": "Questions missed by student saved to mistake review bank",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "questionId": { "type": "string" },
+        "modelId": { "type": "string" },
+        "modelTitle": { "type": "string" },
+        "userWrongOption": { "type": "string" },
+        "dateAdded": { "type": "string" },
+        "mastered": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "questionId", "userWrongOption", "mastered"]
+    },
+    "StudyPlan": {
+      "title": "Study Plan",
+      "description": "Student customized study schedule and progress",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "targetDate": { "type": "string" },
+        "durationText": { "type": "string" },
+        "dailyHours": { "type": "number" },
+        "currentLevel": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "ReadyStudyPlan": {
+      "title": "Ready Study Plan",
+      "description": "Pre-made official study plans created by admins",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "durationDays": { "type": "number" },
+        "dailyHours": { "type": "number" },
+        "description": { "type": "string" },
+        "badge": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "durationDays", "dailyHours"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Student and admin profiles"
+    },
+    "/users/{userId}/attempts/{attemptId}": {
+      "schema": { "$ref": "#/entities/ExamAttempt" },
+      "description": "Exam attempts for a specific student"
+    },
+    "/users/{userId}/mistakes/{mistakeId}": {
+      "schema": { "$ref": "#/entities/Mistake" },
+      "description": "Mistakes bank for a specific student"
+    },
+    "/users/{userId}/studyPlans/{planId}": {
+      "schema": { "$ref": "#/entities/StudyPlan" },
+      "description": "Study plans for a specific student"
+    },
+    "/readyPlans/{planId}": {
+      "schema": { "$ref": "#/entities/ReadyStudyPlan" },
+      "description": "Admin published study schedules"
+    }
+  }
+}

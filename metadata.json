@@ -1,0 +1,8 @@
+{
+  "name": "مرشدك لاختبار STEP",
+  "description": "منصة تساعدك على الاستعداد لاختبار STEP من خلال الاختبارات التجريبية، النماذج، الخطط الدراسية، ومتابعة تقدمك",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

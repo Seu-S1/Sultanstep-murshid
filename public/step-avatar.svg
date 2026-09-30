@@ -1,0 +1,62 @@
+<svg viewBox="0 0 500 500" width="500" height="500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#0d1b36" />
+      <stop offset="70%" stop-color="#060c1b" />
+      <stop offset="100%" stop-color="#040814" />
+    </radialGradient>
+    <filter id="ringGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e2e8f0" stop-opacity="0.9" />
+      <stop offset="30%" stop-color="#93c5fd" stop-opacity="0.8" />
+      <stop offset="70%" stop-color="#3b82f6" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+
+  <circle cx="250" cy="250" r="240" fill="url(#bgGlow)" />
+  <circle cx="250" cy="250" r="230" stroke="url(#ringGrad)" stroke-width="2.5" stroke-opacity="0.85" filter="url(#ringGlow)" />
+  <circle cx="250" cy="250" r="220" stroke="#cbd5e1" stroke-width="1.2" stroke-opacity="0.6" />
+
+  <circle cx="95" cy="115" r="3" fill="#ffffff" filter="url(#ringGlow)" />
+  <path d="M 95 105 L 95 125 M 85 115 L 105 115" stroke="#ffffff" stroke-width="1" stroke-opacity="0.8" />
+
+  <!-- Graduation Cap -->
+  <g id="graduation-cap">
+    <path d="M 250 105 L 365 145 L 250 190 L 135 145 Z" fill="#ffffff" />
+    <path d="M 180 166 L 180 200 C 180 215, 320 215, 320 200 L 320 166 C 298 178, 268 184, 250 184 C 232 184, 202 178, 180 166 Z" fill="#ffffff" />
+    <circle cx="250" cy="147" r="4.5" fill="#e2e8f0" />
+    <path d="M 250 147 Q 330 155, 335 180 L 335 220" stroke="#ffffff" stroke-width="3" stroke-linecap="round" fill="none" />
+    <path d="M 331 220 C 331 216, 339 216, 339 220 L 341 245 C 341 247, 329 247, 329 245 Z" fill="#ffffff" />
+  </g>
+
+  <!-- STEP Text -->
+  <text x="250" y="300" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="88" letter-spacing="2">STEP</text>
+
+  <!-- Divider -->
+  <line x1="105" y1="318" x2="232" y2="318" stroke="#ffffff" stroke-width="2" stroke-opacity="0.8" />
+  <path d="M 250 311 L 255 318 L 250 325 L 245 318 Z" fill="#ffffff" />
+  <line x1="268" y1="318" x2="395" y2="318" stroke="#ffffff" stroke-width="2" stroke-opacity="0.8" />
+
+  <!-- University text -->
+  <text x="250" y="350" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="21" letter-spacing="0.4">Prince Musaed bin Abdulrahman</text>
+  <text x="250" y="378" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="21" letter-spacing="0.5">University</text>
+
+  <!-- Social Handles -->
+  <g transform="translate(0, 422)">
+    <g transform="translate(138, -13) scale(0.72)">
+      <path d="M 12 2 C 7.5 2 4 5.5 4 10 C 4 13.5 6 15 6.5 16 C 6 16.5 4.5 17 3 17 C 2.5 17 2 17.5 2 18 C 2 18.5 2.5 19 4 19 C 5.5 19 6 19.5 7 20 C 8 20.5 8 21.5 8 22 C 8.5 22 9.5 21.5 11 21.5 C 11.5 21.5 12 22 12 22 C 12 22 12.5 21.5 13 21.5 C 14.5 21.5 15.5 22 16 22 C 16 21.5 16 20.5 17 20 C 18 19.5 18.5 19 20 19 C 21.5 19 22 18.5 22 18 C 22 17.5 21.5 17 21 17 C 19.5 17 18 16.5 17.5 16 C 18 15 20 13.5 20 10 C 20 5.5 16.5 2 12 2 Z" fill="#ffffff" />
+    </g>
+    <text x="160" y="0" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="15" letter-spacing="0.2">@sultanseu</text>
+
+    <line x1="250" y1="-12" x2="250" y2="3" stroke="#64748b" stroke-width="1.8" />
+
+    <g transform="translate(264, -13) scale(0.68)">
+      <path d="M 18.244 2.25 h 3.308 l -7.227 8.26 8.502 11.24 H 16.17 l -5.214 -6.817 L 4.99 21.75 H 1.68 l 7.73 -8.835 L 1.254 2.25 H 8.08 l 4.713 6.231 z m -1.161 17.52 h 1.833 L 7.084 4.126 H 5.117 z" fill="#ffffff" />
+    </g>
+    <text x="286" y="0" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="15" letter-spacing="0.2">@SultanPMAU</text>
+  </g>
+</svg>
