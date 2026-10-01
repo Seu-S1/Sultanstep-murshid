@@ -12,6 +12,9 @@ import {
   Award,
   ChevronRight,
   TrendingUp,
+  Play,
+  CheckCircle2,
+  Target,
 } from 'lucide-react';
 
 export const HomeView: React.FC = () => {
@@ -20,6 +23,9 @@ export const HomeView: React.FC = () => {
     setActiveView,
     setIsAuthModalOpen,
     startExam,
+    resumeExam,
+    activeInProgressExamPrompt,
+    studyPlan,
     models,
     mistakes,
     attempts,
@@ -35,6 +41,15 @@ export const HomeView: React.FC = () => {
 
   const activeMistakesCount = mistakes.filter((m) => !m.mastered).length;
   const recentModel = models[0] || { id: 'step-51', title: 'نموذج STEP 51' };
+
+  // Detect in-progress attempt
+  const inProgressAttempt =
+    activeInProgressExamPrompt || attempts.find((a) => a.status === 'in_progress');
+
+  // Study plan stats
+  const totalTasks = studyPlan?.tasks?.length || 0;
+  const completedTasks = studyPlan?.tasks?.filter((t) => t.completed)?.length || 0;
+  const planProgressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
     <div className="space-y-16 pb-16">
@@ -164,6 +179,85 @@ export const HomeView: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* Personalized Student Section (Resume Exam & Study Plan) */}
+      {currentUser && (inProgressAttempt || studyPlan) && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 1. Resume Exam Option */}
+            {inProgressAttempt && (
+              <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5 text-right w-full sm:w-auto">
+                  <div className="w-11 h-11 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm animate-pulse">
+                    <Play className="w-6 h-6 fill-current" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded">
+                        اختبار غير مكتمل
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 mt-1">
+                      {inProgressAttempt.modelTitle || 'اختبار تجريبي قيد الحل'}
+                    </h3>
+                    <p className="text-xs text-slate-600">
+                      يمكنك استكمال الإجابات من حيث توقفت بدون فقدان تقدمك
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => resumeExam(inProgressAttempt.id)}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>متابعة الاختبار</span>
+                </button>
+              </div>
+            )}
+
+            {/* 2. Study Plan & Progress */}
+            {studyPlan && (
+              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex flex-col justify-between gap-4">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-blue-900" />
+                      <span className="text-xs font-bold text-slate-900">{studyPlan.title}</span>
+                    </div>
+                    <span className="text-xs font-extrabold text-blue-950 tabular-nums">
+                      {planProgressPercent}%
+                    </span>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-blue-950 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${planProgressPercent}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1.5">
+                      <span>{completedTasks} من {totalTasks} مهام منجزة</span>
+                      {studyPlan.targetDate && (
+                        <span>موعد الاختبار: {studyPlan.targetDate}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setActiveView('study-plan')}
+                  className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>عرض الخطة ومتابعة المهام</span>
+                  <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* "ماذا تريد أن تفعل اليوم؟" Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

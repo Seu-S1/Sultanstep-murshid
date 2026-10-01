@@ -31,6 +31,7 @@ import {
   ArrowRight,
   Loader2,
   HelpCircle,
+  GraduationCap,
 } from 'lucide-react';
 import { AdminRole, ExamModel, Question, ReadyStudyPlan, SkillType } from '../types';
 import {
@@ -38,17 +39,20 @@ import {
   ParsedQuestionRow,
   SheetParseResult,
 } from '../utils/excelImportService';
+import { StudentManagementSection } from '../components/admin/StudentManagementSection';
 
 export const AdminDashboardView: React.FC = () => {
   const {
     models,
     questions,
+    students,
     addModel,
     updateModel,
     deleteModel,
     addQuestion,
     updateQuestion,
     deleteQuestion,
+    clearModelQuestions,
     importQuestionsBatch,
     exportQuestionsToExcel,
     exportQuestionsToCsv,
@@ -74,7 +78,7 @@ export const AdminDashboardView: React.FC = () => {
 
   // Active admin tab
   const [activeTab, setActiveTab] = useState<
-    'models' | 'questions' | 'import' | 'ready-plans' | 'admins' | 'activity-logs' | 'backup-export'
+    'students' | 'models' | 'questions' | 'import' | 'ready-plans' | 'admins' | 'activity-logs' | 'backup-export'
   >('models');
 
   // Filter questions
@@ -108,7 +112,8 @@ export const AdminDashboardView: React.FC = () => {
 
   // Excel File Import State
   const excelFileInputRef = useRef<HTMLInputElement>(null);
-  const [importTargetModel, setImportTargetModel] = useState('step-51');
+  const [importTargetModel, setImportTargetModel] = useState('step-05');
+  const [forceTargetModel, setForceTargetModel] = useState(true);
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
   const [excelParseResult, setExcelParseResult] = useState<SheetParseResult | null>(null);
   const [excelSheetNames, setExcelSheetNames] = useState<string[]>([]);
@@ -425,46 +430,52 @@ export const AdminDashboardView: React.FC = () => {
     setImportSuccessReport(null);
 
     try {
-      const questionsToSave: Question[] = validRows.map((r, idx) => ({
-        id: r.questionId || `q-${r.modelId}-${Date.now()}-${idx}`,
-        modelId: r.modelId || importTargetModel,
-        skill: r.skill,
-        questionText: r.questionText,
-        passage: r.passage,
-        passageTitle: r.passageTitle,
-        imageUrl: r.imageUrl,
-        options: [
-          { id: 'A', text: r.optA },
-          { id: 'B', text: r.optB },
-          { id: 'C', text: r.optC },
-          { id: 'D', text: r.optD },
-        ],
-        correctOption: r.correctOption as 'A' | 'B' | 'C' | 'D',
-        explanation: r.explanation || 'شرح تفصيلي للسؤال لتوضيح الإجابة الصحيحة.',
-        difficulty: 'medium',
-        updatedAt: new Date().toISOString(),
-      }));
-
-      // Automatically create model if it was detected in file and doesn't exist
-      const distinctModelNumbers = Array.from(new Set(validRows.map((r) => r.modelNumber)));
-      distinctModelNumbers.forEach((mNum) => {
-        const expectedId = `step-${mNum < 10 ? `0${mNum}` : mNum}`;
-        const modelExists = models.some((m) => m.id === expectedId || m.number === mNum);
-        if (!modelExists) {
-          addModel({
-            id: expectedId,
-            number: mNum,
-            title: `نموذج STEP ${mNum}`,
-            description: `نموذج اختبار معتمد تم استيراده برمجياً (${selectedExcelFile?.name || 'Excel'})`,
-            totalQuestions: validRows.filter((r) => r.modelNumber === mNum).length || 88,
-            durationMinutes: 110,
-            skills: ['reading', 'grammar', 'listening', 'vocabulary'],
-            isRecent: true,
-          });
-        }
+      const questionsToSave: Question[] = validRows.map((r, idx) => {
+        const rowModelId = forceTargetModel ? importTargetModel : (r.modelId || importTargetModel);
+        return {
+          id: r.questionId || `q-${rowModelId}-${Date.now()}-${idx}`,
+          modelId: rowModelId,
+          skill: r.skill,
+          questionText: r.questionText,
+          passage: r.passage,
+          passageTitle: r.passageTitle,
+          imageUrl: r.imageUrl,
+          options: [
+            { id: 'A', text: r.optA },
+            { id: 'B', text: r.optB },
+            { id: 'C', text: r.optC },
+            { id: 'D', text: r.optD },
+          ],
+          correctOption: r.correctOption as 'A' | 'B' | 'C' | 'D',
+          explanation: r.explanation || 'شرح تفصيلي للسؤال لتوضيح الإجابة الصحيحة.',
+          difficulty: 'medium',
+          updatedAt: new Date().toISOString(),
+        };
       });
 
-      const { added, updated } = importQuestionsBatch(questionsToSave);
+      // Automatically create model if it was detected in file and doesn't exist
+      if (!forceTargetModel) {
+        const distinctModelNumbers = Array.from(new Set(validRows.map((r) => r.modelNumber)));
+        distinctModelNumbers.forEach((mNum) => {
+          const expectedId = `step-${mNum < 10 ? `0${mNum}` : mNum}`;
+          const modelExists = models.some((m) => m.id === expectedId || m.number === mNum);
+          if (!modelExists) {
+            addModel({
+              id: expectedId,
+              number: mNum,
+              title: `نموذج STEP ${mNum}`,
+              description: `نموذج اختبار معتمد تم استيراده برمجياً (${selectedExcelFile?.name || 'Excel'})`,
+              totalQuestions: validRows.filter((r) => r.modelNumber === mNum).length || 88,
+              durationMinutes: 110,
+              skills: ['reading', 'grammar', 'listening', 'vocabulary'],
+              isRecent: true,
+            });
+          }
+        });
+      }
+
+      // Permanent Firestore batch persistence - awaited strictly
+      const { added, updated } = await importQuestionsBatch(questionsToSave);
 
       const targetTitle =
         models.find((m) => m.id === importTargetModel)?.title || `نموذج STEP ${validRows[0]?.modelNumber || 51}`;
@@ -562,244 +573,6 @@ export const AdminDashboardView: React.FC = () => {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'STEP_Questions');
     XLSX.writeFile(workbook, 'STEP_Questions_Template.xlsx');
-  };
-
-  // Comprehensive 1-Click sample Excel generator testing ALL required answer formats
-  const handleLoadSampleExcel = async () => {
-    setExcelReadError(null);
-    setImportSuccessReport(null);
-    setIsReadingExcel(true);
-
-    try {
-      const sampleRows = [
-        // 1-4: Standard Letters A, B, C, D
-        {
-          questionId: 'test-q01',
-          model: '51',
-          question: 'Had the flight attendants known about the turbulence, they ________ the beverage service earlier.',
-          optionA: 'would delay',
-          optionB: 'would have delayed',
-          optionC: 'will delay',
-          optionD: 'have delayed',
-          correctAnswer: 'B',
-          section: 'grammar',
-          passage: '',
-          explanation: 'حالة شرطية ثالثة: Had + S + V3 يتبعها would have + V3.',
-        },
-        {
-          questionId: 'test-q02',
-          model: '51',
-          question: 'The committee members insisted that the project director ________ an interim progress report.',
-          optionA: 'submit',
-          optionB: 'submits',
-          optionC: 'submitted',
-          optionD: 'has submitted',
-          correctAnswer: 'A',
-          section: 'grammar',
-          passage: '',
-          explanation: 'قاعدة صيغة الطلب Subjunctive: insist that + S + Base Form (submit).',
-        },
-        {
-          questionId: 'test-q03',
-          model: '51',
-          question: 'The scientific journal editorial was commended for its ________ peer-review standards.',
-          optionA: 'lax',
-          optionB: 'careless',
-          optionC: 'rigorous',
-          optionD: 'negligent',
-          correctAnswer: 'C',
-          section: 'vocabulary',
-          passage: '',
-          explanation: 'المعنى السياقي لكلمة rigorous هو صارم ودقيق أكاديمياً.',
-        },
-        {
-          questionId: 'test-q04',
-          model: '51',
-          question: 'According to paragraph 2, what caused the migration patterns to alter suddenly?',
-          optionA: 'Predator proliferation',
-          optionB: 'Extreme drought anomalies',
-          optionC: 'Habitat fragmentation',
-          optionD: 'Unprecedented temperature fluctuations',
-          correctAnswer: 'D',
-          section: 'reading',
-          passage: 'Field biologists noted that unprecedented temperature fluctuations throughout the winter disrupted natural food sources, forcing bird flocks to relocate southward.',
-          explanation: 'النص يوضح أن تقلبات درجات الحرارة غير المسبوقة هي السبب الرئيسي.',
-        },
-
-        // 5-8: Numbers 1, 2, 3, 4 (Mapping to A, B, C, D)
-        {
-          questionId: 'test-q05',
-          model: '51',
-          question: 'Neither the manager nor the assistants ________ aware of the revised itinerary.',
-          optionA: 'were',
-          optionB: 'was',
-          optionC: 'is',
-          optionD: 'are being',
-          correctAnswer: '1', // 1 -> A
-          section: 'grammar',
-          passage: '',
-          explanation: 'قاعدة Neither... nor: الفعل يتبع الفاعل الأقرب (assistants جمع -> were).',
-        },
-        {
-          questionId: 'test-q06',
-          model: '51',
-          question: 'By the time the symposium concludes tomorrow, Dr. Carter ________ for forty-eight continuous hours.',
-          optionA: 'will work',
-          optionB: 'will have been working',
-          optionC: 'has worked',
-          optionD: 'worked',
-          correctAnswer: '2', // 2 -> B
-          section: 'grammar',
-          passage: '',
-          explanation: 'المستقبل التام المستمر: By the time + مضارع بسيط يقابله will have been working.',
-        },
-        {
-          questionId: 'test-q07',
-          model: '51',
-          question: 'The municipal water treatment facility was designed to ________ heavy sediment during flooding.',
-          optionA: 'accelerate',
-          optionB: 'absorb',
-          optionC: 'filter',
-          optionD: 'disseminate',
-          correctAnswer: '3', // 3 -> C
-          section: 'vocabulary',
-          passage: '',
-          explanation: 'كلمة filter تعني تصفية وترشيح الرواسب.',
-        },
-        {
-          questionId: 'test-q08',
-          model: '51',
-          question: 'Rarely ________ such an overwhelming consensus among international economic analysts.',
-          optionA: 'we have observed',
-          optionB: 'we observed',
-          optionC: 'did we observe',
-          optionD: 'have we observed',
-          correctAnswer: '4', // 4 -> D
-          section: 'grammar',
-          passage: '',
-          explanation: 'قاعدة القلب Inversion بعد الظرف المنفي Rarely: Rarely have we observed.',
-        },
-
-        // 9-12: Arabic letters أ, ب, ج, د (Mapping to A, B, C, D)
-        {
-          questionId: 'test-q09',
-          model: '51',
-          question: 'The urban planner recommended that the historic district ________ protected from commercial zoning.',
-          optionA: 'remain',
-          optionB: 'remains',
-          optionC: 'remained',
-          optionD: 'is remaining',
-          correctAnswer: 'أ', // أ -> A
-          section: 'grammar',
-          passage: '',
-          explanation: 'صيغة Subjunctive بعد recommend that + S + المصدر المجرد (remain).',
-        },
-        {
-          questionId: 'test-q10',
-          model: '51',
-          question: 'The archaeological discovery shed valuable light on the ________ civilization of the Bronze Age.',
-          optionA: 'transient',
-          optionB: 'ancient',
-          optionC: 'futuristic',
-          optionD: 'trivial',
-          correctAnswer: 'ب', // ب -> B
-          section: 'vocabulary',
-          passage: '',
-          explanation: 'كلمة ancient تعني حضارة عريقة وقديمة وهو السياق الأنسب.',
-        },
-        {
-          questionId: 'test-q11',
-          model: '51',
-          question: 'No sooner had the keynote speaker arrived at the podium ________ the presentation screen went blank.',
-          optionA: 'when',
-          optionB: 'then',
-          optionC: 'than',
-          optionD: 'after',
-          correctAnswer: 'ج', // ج -> C
-          section: 'grammar',
-          passage: '',
-          explanation: 'قاعدة No sooner... than تأتي دائماً مقترنة بكلمة than.',
-        },
-        {
-          questionId: 'test-q12',
-          model: '51',
-          question: 'What is the primary thesis advocated by the author in the final paragraph?',
-          optionA: 'Economic stagnation is unavoidable',
-          optionB: 'Renewable energy adoption must accelerate',
-          optionC: 'Urban density reduces living quality',
-          optionD: 'Investments in public transit yield substantial societal dividends',
-          correctAnswer: 'د', // د -> D
-          section: 'reading',
-          passage: 'Empirical transit case studies prove conclusively that comprehensive rail networks foster community cohesion, reduce urban respiratory illness, and yield long-term societal dividends.',
-          explanation: 'الفقرة الأخيرة تؤكد أن الاستثمار في النقل العام يحقق عوائد مجتمعية هائلة.',
-        },
-
-        // 13-15: Full Option Text Matching (English & Arabic)
-        {
-          questionId: 'test-q13',
-          model: '51',
-          question: 'What is the opposite of "hot"?',
-          optionA: 'cold',
-          optionB: 'warm',
-          optionC: 'heat',
-          optionD: 'fire',
-          correctAnswer: 'cold', // Full text of Option A -> A
-          section: 'vocabulary',
-          passage: '',
-          explanation: 'المقابل الدقيق لكلمة hot هو cold.',
-        },
-        {
-          questionId: 'test-q14',
-          model: '51',
-          question: 'What is the primary factor responsible for the recent decline in solar cell costs?',
-          optionA: 'Subsidies and tax credits',
-          optionB: 'Technological advancements in silicon purification',
-          optionC: 'Decreased shipping fees',
-          optionD: 'Lower assembly labor expenses',
-          correctAnswer: 'Technological advancements in silicon purification', // Full text of Option B -> B
-          section: 'reading',
-          passage: 'Industrial engineering metrics demonstrate that technological advancements in silicon purification have driven 80% of the recent drop in solar cell production costs.',
-          explanation: 'النص يثبت أن التطور التقني في تنقية السيليكون هو العامل الأساسي بنسبة 80%.',
-        },
-        {
-          questionId: 'test-q15',
-          model: '51',
-          question: 'ما هو المعنى المقابل لكلمة "البرودة" في سياق درجات الحرارة؟',
-          optionA: 'الصقيع',
-          optionB: 'الحرارة',
-          optionC: 'الاعتدال',
-          optionD: 'الجفاف',
-          correctAnswer: 'الحرارة', // Full text of Option B in Arabic -> B
-          section: 'vocabulary',
-          passage: '',
-          explanation: 'الحرارة هي المقابل الدقيق لكلمة البرودة.',
-        },
-      ];
-
-      const ws = XLSX.utils.json_to_sheet(sampleRows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'STEP 51 Test Suite');
-
-      const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-      const blob = new Blob([out], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const file = new File([blob], 'STEP51_Comprehensive_Test_Suite.xlsx', {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-
-      setSelectedExcelFile(file);
-      const { sheetNames, parseSheet } = await parseExcelWorkbook(file, questions, importTargetModel);
-      setExcelSheetNames(sheetNames);
-      setActiveSheetName(sheetNames[0]);
-      setCachedParseSheetFn(() => parseSheet);
-      const parsed = parseSheet(sheetNames[0]);
-      setExcelParseResult(parsed);
-    } catch (err: any) {
-      setExcelReadError(err.message || 'فشلت معالجة النموذج التجريبي.');
-    } finally {
-      setIsReadingExcel(false);
-    }
   };
 
   // OCR Study Plan Image Upload and Vision API handler
@@ -1066,6 +839,18 @@ export const AdminDashboardView: React.FC = () => {
       {/* Modern Tabs Navigation */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-3 overflow-x-auto">
         <button
+          onClick={() => setActiveTab('students')}
+          className={`py-2 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'students'
+              ? 'bg-blue-950 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <GraduationCap className="w-3.5 h-3.5" />
+          <span>إدارة الطلاب ({students.length})</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('models')}
           className={`py-2 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'models'
@@ -1148,6 +933,9 @@ export const AdminDashboardView: React.FC = () => {
         </button>
       </div>
 
+      {/* TAB 0: STUDENT MANAGEMENT */}
+      {activeTab === 'students' && <StudentManagementSection />}
+
       {/* TAB 1: MODELS MANAGEMENT */}
       {activeTab === 'models' && (
         <div className="space-y-6">
@@ -1162,51 +950,97 @@ export const AdminDashboardView: React.FC = () => {
             </button>
           </div>
 
-          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden divide-y divide-slate-100">
-            {models.map((model) => (
-              <div
-                key={model.id}
-                className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-blue-950 text-white flex items-center justify-center font-bold text-sm tabular-nums">
-                    {model.number}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">{model.title}</h4>
-                    <p className="text-xs text-slate-500 line-clamp-1">{model.description}</p>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1 tabular-nums">
-                      <span>{model.totalQuestions} سؤالاً</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{model.durationMinutes} دقيقة</span>
+          <div className="bg-white dark:bg-[#0c1322] rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+            {models.map((model) => {
+              const qCount = questions.filter((q) => q.modelId === model.id).length;
+              return (
+                <div
+                  key={model.id}
+                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/70 dark:hover:bg-slate-900/60 transition-colors"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-blue-950 text-white flex items-center justify-center font-bold text-sm tabular-nums">
+                      {model.number < 10 ? `0${model.number}` : model.number}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">{model.title}</h4>
+                        {qCount === 0 ? (
+                          <span className="text-[10px] font-bold text-amber-800 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-900">
+                            فارغ (0 أسئلة)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-900">
+                            {qCount} سؤالاً مسجلاً
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">{model.description}</p>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1 tabular-nums">
+                        <span>{qCount} سؤالاً في السحابة</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{model.durationMinutes} دقيقة</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center">
-                  <button
-                    onClick={() => handleOpenEditModel(model)}
-                    className="py-1.5 px-3 rounded-lg border border-slate-200 hover:bg-slate-100 text-xs font-semibold text-slate-700 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>تعديل</span>
-                  </button>
+                  <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                    <button
+                      onClick={() => {
+                        setImportTargetModel(model.id);
+                        setForceTargetModel(true);
+                        setActiveTab('excel');
+                      }}
+                      className="py-1.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                      title={`رفع ملف Excel خاص بـ ${model.title}`}
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>رفع ملف النموذج (Excel)</span>
+                    </button>
 
-                  <button
-                    onClick={() => {
-                      if (confirm(`هل أنت متأكد من حذف ${model.title}؟`)) {
-                        deleteModel(model.id);
-                        addActivityLog(`حذف المشرف النموذج ${model.title}`, 'model');
-                      }
-                    }}
-                    className="py-1.5 px-3 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>حذف</span>
-                  </button>
+                    {qCount > 0 && (
+                      <button
+                        onClick={async () => {
+                          if (
+                            confirm(
+                              `هل أنت متأكد تماماً من تفريغ كافة أسئلة (${qCount} سؤالاً) الخاصة بـ "${model.title}" من قاعدة البيانات السحابية؟`
+                            )
+                          ) {
+                            await clearModelQuestions(model.id);
+                          }
+                        }}
+                        className="py-1.5 px-3 rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                        title="تفريغ جميع أسئلة هذا النموذج من السحابة"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>تفريغ الأسئلة ({qCount})</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => handleOpenEditModel(model)}
+                      className="py-1.5 px-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>تعديل</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (confirm(`هل أنت متأكد من حذف ${model.title}؟`)) {
+                          deleteModel(model.id);
+                          addActivityLog(`حذف المشرف النموذج ${model.title}`, 'model');
+                        }
+                      }}
+                      className="py-1.5 px-3 rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>حذف النموذج</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1385,42 +1219,53 @@ export const AdminDashboardView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleDownloadTemplate}
-                  className="py-2 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                  className="py-2 px-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
                   title="تنزيل قالب Excel جاهز بالأعمدة النموذجية"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>تحميل قالب Excel (.xlsx)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleLoadSampleExcel}
-                  className="py-2 px-3.5 bg-blue-50 hover:bg-blue-100 text-blue-950 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer border border-blue-200"
-                  title="تجربة فورية بنقرة واحدة لاختبار الاستيراد بكافة الصيغ (A, B, C, D, 1, 2, 3, 4, أ, ب, ج, د, ونص الإجابة)"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-blue-700" />
-                  <span>تجربة نموذج الاختبار الشامل (1-Click)</span>
+                  <span>تحميل قالب Excel فارغ (.xlsx)</span>
                 </button>
               </div>
             </div>
 
             {/* Model Association Setting */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
-              <span className="font-bold text-slate-800 shrink-0">النموذج الافتراضي للربط:</span>
-              <div className="flex items-center gap-2 flex-1">
+            <div className="flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span className="font-bold text-slate-800 dark:text-slate-200 shrink-0">
+                  النموذج المستهدف لحفظ أسئلة الملف:
+                </span>
                 <select
                   value={importTargetModel}
                   onChange={(e) => setImportTargetModel(e.target.value)}
-                  className="p-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-900 outline-none text-slate-900"
+                  className="p-2.5 bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-xl font-bold focus:ring-2 focus:ring-blue-900 outline-none text-slate-900 dark:text-white flex-1 max-w-md cursor-pointer"
                 >
-                  {models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.title}
-                    </option>
-                  ))}
+                  {models.map((m) => {
+                    const qCount = questions.filter((q) => q.modelId === m.id).length;
+                    return (
+                      <option key={m.id} value={m.id}>
+                        {m.title} — {qCount === 0 ? 'فارغ (0 سؤال)' : `(${qCount} أسئلة مسجلة)`}
+                      </option>
+                    );
+                  })}
                 </select>
+              </div>
+
+              <div className="pt-2.5 border-t border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={forceTargetModel}
+                    onChange={(e) => setForceTargetModel(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-950 focus:ring-blue-900 cursor-pointer"
+                  />
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    تخصيص جميع أسئلة هذا الملف للنموذج المختار أعلاه حصراً (يمنع اختلاط أسئلة النماذج نهائياً)
+                  </span>
+                </label>
                 <span className="text-[11px] text-slate-500">
-                  (ملاحظة: إذا تضمن الملف عمود "model" أو "النموذج"، سيتم اعتماد النموذج المحدد في كل صف تلقائياً)
+                  {forceTargetModel
+                    ? '✓ كل أسئلة الملف ستُحفظ في النموذج المحدد أعلاه فقط في السحابة.'
+                    : 'سيتم اعتماد رقم النموذج من عمود الملف إن وُجد.'}
                 </span>
               </div>
             </div>

@@ -73,6 +73,102 @@ export async function updateUser(userId: string, updates: Partial<StudentUser>):
   }
 }
 
+export interface PasswordResetResult {
+  status: 'success' | 'google_account' | 'not_found';
+  message: string;
+  email?: string;
+  token?: string;
+  userName?: string;
+  resetLink?: string;
+}
+
+export async function requestPasswordReset(email: string): Promise<PasswordResetResult> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) {
+    throw new Error('يرجى إدخال البريد الإلكتروني.');
+  }
+
+  if (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@stepguide.sa')) {
+    throw new Error('يرجى استخدام حساب Gmail للتسجيل.');
+  }
+
+  const user = await findUserByEmail(cleanEmail);
+  if (!user) {
+    return {
+      status: 'not_found',
+      message: 'لم يتم العثور على أي حساب مسجل بهذا البريد الإلكتروني. يرجى التأكد من البريد أو إنشاء حساب جديد.',
+      email: cleanEmail,
+    };
+  }
+
+  // If user was registered strictly with Google auth provider:
+  if (user.authProvider === 'google') {
+    return {
+      status: 'google_account',
+      message: 'هذا الحساب مرتبط بتسجيل الدخول عبر Google. تتم المصادقة مباشرة عبر حساب Google نفسه ولا يتطلب كلمة مرور بالمنصة.',
+      email: cleanEmail,
+      userName: user.name,
+    };
+  }
+
+  // Generate real secure reset token (valid for 1 hour)
+  const token = `rst_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  const expires = Date.now() + 60 * 60 * 1000; // 1 hour
+
+  await updateUser(user.id, {
+    resetToken: token,
+    resetTokenExpires: expires,
+  });
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const resetLink = `${origin}${pathname}?action=reset-password&token=${token}&email=${encodeURIComponent(cleanEmail)}`;
+
+  return {
+    status: 'success',
+    message: 'تم إنشاء رابط استعادة كلمة المرور وتأمينه بنجاح.',
+    email: cleanEmail,
+    token,
+    userName: user.name,
+    resetLink,
+  };
+}
+
+export async function verifyResetToken(email: string, token: string): Promise<StudentUser> {
+  const cleanEmail = email.trim().toLowerCase();
+  const user = await findUserByEmail(cleanEmail);
+  if (!user) {
+    throw new Error('الحساب غير موجود.');
+  }
+  if (!user.resetToken || user.resetToken !== token) {
+    throw new Error('رابط استعادة كلمة المرور غير صالح أو تم استخدامه مسبقاً.');
+  }
+  if (!user.resetTokenExpires || user.resetTokenExpires < Date.now()) {
+    throw new Error('انتهت صلاحية رابط استعادة كلمة المرور (صلاحية الرابط ساعة واحدة). يرجى طلب رابط جديد.');
+  }
+  return user;
+}
+
+export async function resetUserPassword(
+  email: string,
+  token: string,
+  newPassword: string
+): Promise<boolean> {
+  const user = await verifyResetToken(email, token);
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error('يجب ألا تقل كلمة المرور الجديدة عن 6 خانات.');
+  }
+
+  await updateUser(user.id, {
+    password: newPassword.trim(),
+    authProvider: 'password',
+    resetToken: '',
+    resetTokenExpires: 0,
+  });
+
+  return true;
+}
+
 export async function deleteUserAccount(userId: string): Promise<void> {
   try {
     // 1. Delete attempts
@@ -424,7 +520,8 @@ export async function loadModelsFromDb(): Promise<ExamModel[]> {
     snap.forEach((d) => {
       modelsList.push(d.data() as ExamModel);
     });
-    modelsList.sort((a, b) => b.number - a.number);
+    // Order strictly ascending from 05 to 51 as requested
+    modelsList.sort((a, b) => a.number - b.number);
     return modelsList;
   } catch (error) {
     console.warn('Error loading models from Firestore:', error);
@@ -442,6 +539,35 @@ export async function saveModelToDb(model: ExamModel): Promise<void> {
   } catch (error) {
     console.error('Error saving model to Firestore:', error);
     throw error;
+  }
+}
+
+export async function saveModelsBatch(modelsList: ExamModel[]): Promise<void> {
+  if (modelsList.length === 0) return;
+  const CHUNK_SIZE = 100;
+  for (let i = 0; i < modelsList.length; i += CHUNK_SIZE) {
+    const chunk = modelsList.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    for (const m of chunk) {
+      const mRef = doc(db, 'models', m.id);
+      batch.set(mRef, {
+        ...m,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await batch.commit();
+  }
+}
+
+export async function updateModelQuestionsCount(modelId: string, count: number): Promise<void> {
+  try {
+    const mRef = doc(db, 'models', modelId);
+    await updateDoc(mRef, {
+      totalQuestions: count,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn(`Could not update question count for model ${modelId}:`, err);
   }
 }
 

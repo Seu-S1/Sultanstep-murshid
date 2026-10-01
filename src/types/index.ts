@@ -37,6 +37,10 @@ export interface StudentUser {
   name: string;
   email: string;
   role: 'student' | 'admin';
+  password?: string;
+  authProvider?: 'password' | 'google';
+  resetToken?: string;
+  resetTokenExpires?: number;
   avatar?: string;
   joinedDate: string;
   targetScore: number;

@@ -29,7 +29,7 @@ export const BottomNav: React.FC = () => {
   ];
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 py-1.5 px-3">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0c1322]/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800/90 py-1.5 px-3 transition-colors">
       <div className="grid grid-cols-5 gap-1 max-w-md mx-auto">
         {items.map((item) => {
           const isActive = activeView === item.id;
@@ -39,8 +39,8 @@ export const BottomNav: React.FC = () => {
               onClick={() => setActiveView(item.id)}
               className={`flex flex-col items-center justify-center py-1 rounded-xl transition-all cursor-pointer relative ${
                 isActive
-                  ? 'text-blue-950 font-bold bg-blue-50/80'
-                  : 'text-slate-500 hover:text-slate-800'
+                  ? 'text-blue-950 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/60'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
             >
               <div className="relative">

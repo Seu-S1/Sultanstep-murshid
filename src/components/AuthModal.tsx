@@ -10,6 +10,8 @@ export const AuthModal: React.FC = () => {
     setAuthModalMode,
     login,
     register,
+    loginWithGoogle,
+    requestPasswordReset,
   } = useApp();
 
   const [email, setEmail] = useState('');
@@ -18,21 +20,57 @@ export const AuthModal: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [forgotPasswordSubmitted, setForgotPasswordSubmitted] = useState(false);
   const [isForgotView, setIsForgotView] = useState(false);
 
   if (!isAuthModalOpen) return null;
+
+  const handleGoogleAuth = async () => {
+    setError(null);
+    setIsGoogleLoading(true);
+    try {
+      await loginWithGoogle();
+      setIsAuthModalOpen(false);
+    } catch (err: any) {
+      console.warn('Google auth error in modal:', err);
+      setError(err.message || 'تعذر تسجيل الدخول بحساب Google.');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (isForgotView) {
-      if (!email.trim() || !email.includes('@')) {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail || !cleanEmail.includes('@')) {
         setError('يرجى إدخال بريد إلكتروني صحيح');
         return;
       }
-      setForgotPasswordSubmitted(true);
+      if (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@stepguide.sa')) {
+        setError('يرجى استخدام حساب Gmail للتسجيل.');
+        return;
+      }
+      setIsSubmitting(true);
+      try {
+        const res = await requestPasswordReset(cleanEmail);
+        if (res.status === 'google_account') {
+          setError('هذا الحساب مسجل عبر Google. يتم تسجيل الدخول مباشرة بزر Google دون الحاجة لكلمة مرور.');
+          return;
+        }
+        if (res.status === 'not_found') {
+          setError(res.message);
+          return;
+        }
+        setForgotPasswordSubmitted(true);
+      } catch (err: any) {
+        setError(err.message || 'حدث خطأ أثناء طلب استعادة كلمة المرور');
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -44,9 +82,11 @@ export const AuthModal: React.FC = () => {
 
       setIsSubmitting(true);
       try {
-        const ok = await login(email);
-        if (!ok) {
-          setError('فشل تسجيل الدخول. يرجى التحقق من الاتصال بالإنترنت.');
+        const ok = await login(email, password);
+        if (ok) {
+          setIsAuthModalOpen(false);
+        } else {
+          setError('فشل تسجيل الدخول. يرجى التحقق من صحة البيانات.');
         }
       } catch (err: any) {
         setError(err.message || 'حدث خطأ أثناء تسجيل الدخول');
@@ -54,8 +94,13 @@ export const AuthModal: React.FC = () => {
         setIsSubmitting(false);
       }
     } else {
-      if (!name.trim() || !email.trim() || !password.trim()) {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!name.trim() || !cleanEmail || !password.trim()) {
         setError('يرجى ملء جميع الحقول');
+        return;
+      }
+      if (!cleanEmail.endsWith('@gmail.com')) {
+        setError('يرجى استخدام حساب Gmail للتسجيل.');
         return;
       }
       if (password !== confirmPassword) {
@@ -69,9 +114,11 @@ export const AuthModal: React.FC = () => {
 
       setIsSubmitting(true);
       try {
-        const ok = await register(name, email);
-        if (!ok) {
-          setError('تعذر إنشاء الحساب في قاعدة البيانات. تحقق من الاتصال.');
+        const ok = await register(name, cleanEmail, password);
+        if (ok) {
+          setIsAuthModalOpen(false);
+        } else {
+          setError('تعذر إنشاء الحساب. تحقق من الاتصال.');
         }
       } catch (err: any) {
         setError(err.message || 'حدث خطأ أثناء إنشاء الحساب');
@@ -84,7 +131,7 @@ export const AuthModal: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in duration-200">
       <div
-        className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden text-right"
+        className="relative w-full max-w-md bg-white dark:bg-[#0c1322] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden text-right transition-colors"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
@@ -95,13 +142,13 @@ export const AuthModal: React.FC = () => {
             setForgotPasswordSubmitted(false);
             setError(null);
           }}
-          className="absolute top-4 left-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+          className="absolute top-4 left-4 p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="px-6 pt-7 pb-4 bg-gradient-to-b from-blue-50/50 to-white">
+        <div className="px-6 pt-7 pb-4 bg-gradient-to-b from-blue-50/50 to-white dark:from-blue-950/40 dark:to-[#0c1322]">
           <div className="w-12 h-12 rounded-xl bg-blue-950 text-white flex items-center justify-center mb-4 shadow-sm">
             <Compass className="w-6 h-6 text-blue-200" />
           </div>
@@ -214,6 +261,48 @@ export const AuthModal: React.FC = () => {
               </button>
             </div>
 
+            {/* Google Sign-in Button */}
+            <div className="space-y-3 mb-4">
+              <button
+                type="button"
+                onClick={handleGoogleAuth}
+                disabled={isSubmitting || isGoogleLoading}
+                className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
+              >
+                {isGoogleLoading ? (
+                  <div className="w-4 h-4 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                    />
+                  </svg>
+                )}
+                <span>المتابعة باستخدام Google</span>
+              </button>
+
+              <div className="relative flex items-center justify-center">
+                <div className="border-t border-slate-200 w-full" />
+                <span className="bg-white px-2.5 text-[10px] text-slate-400 font-medium shrink-0">
+                  أو بالبريد الإلكتروني
+                </span>
+                <div className="border-t border-slate-200 w-full" />
+              </div>
+            </div>
+
             {error && (
               <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
                 {error}
@@ -249,7 +338,7 @@ export const AuthModal: React.FC = () => {
                     dir="ltr"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@domain.com"
+                    placeholder="student@gmail.com"
                     className="w-full py-2.5 px-3 pl-9 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent text-left"
                   />
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />

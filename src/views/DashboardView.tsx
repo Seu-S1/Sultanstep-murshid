@@ -13,6 +13,9 @@ import {
   User,
   LogIn,
   UserPlus,
+  Sun,
+  Moon,
+  Eye,
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
@@ -27,6 +30,9 @@ export const DashboardView: React.FC = () => {
     models,
     setIsAuthModalOpen,
     setAuthModalMode,
+    theme,
+    setTheme,
+    toggleTheme,
   } = useApp();
 
   // If user is not logged in, show unauthenticated state requiring sign in
@@ -118,6 +124,56 @@ export const DashboardView: React.FC = () => {
               <Play className="w-3.5 h-3.5 fill-current" />
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* بيئة المذاكرة وتقليل إجهاد العين (Dark Mode Toggle) */}
+      <div className="p-5 sm:p-6 bg-white dark:bg-[#0c1322] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors">
+        <div className="flex items-start sm:items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
+            <Eye className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                بيئة المذاكرة ومظهر المنصة
+              </h3>
+              <span className="text-[10px] font-semibold text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/80 px-2 py-0.5 rounded-md">
+                راحة العين
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              بدّل بين الوضع الفاتح والوضع الداكن لتقليل إجهاد العين أثناء جلسات المذاكرة والتدريب الطويلة.
+            </p>
+          </div>
+        </div>
+
+        {/* Segmented Mode Switcher */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60 shrink-0 self-start md:self-auto">
+          <button
+            type="button"
+            onClick={() => setTheme('light')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              theme === 'light'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Sun className="w-4 h-4 text-amber-500" />
+            <span>الوضع الفاتح</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTheme('dark')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              theme === 'dark'
+                ? 'bg-blue-950 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Moon className="w-4 h-4 text-blue-300" />
+            <span>الوضع الداكن</span>
+          </button>
         </div>
       </div>
 

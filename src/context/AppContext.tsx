@@ -41,6 +41,8 @@ import {
   deleteReadyPlan as deleteReadyPlanInDb,
   loadModelsFromDb,
   saveModelToDb,
+  saveModelsBatch,
+  updateModelQuestionsCount,
   deleteModelFromDb,
   loadQuestionsFromDb,
   saveQuestionToDb,
@@ -54,7 +56,13 @@ import {
   loadAllStudentsFromDb,
   batchSaveStudents,
   loadStudentFullStats,
+  requestPasswordReset,
+  verifyResetToken,
+  resetUserPassword,
+  PasswordResetResult,
 } from '../services/dbService';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { auth } from '../firebase';
 
 export type SyncStatus = 'synced' | 'syncing' | 'error' | 'offline';
 
@@ -72,6 +80,7 @@ interface AppContextType {
   setActiveView: (view: ActiveView) => void;
 
   // Cloud Sync & Status
+  isSessionLoading: boolean;
   syncStatus: SyncStatus;
   lastSyncError: string | null;
   activeInProgressExamPrompt: ExamAttempt | null;
@@ -134,10 +143,19 @@ interface AppContextType {
   setIsAuthModalOpen: (open: boolean) => void;
   authModalMode: 'login' | 'register';
   setAuthModalMode: (mode: 'login' | 'register') => void;
-  login: (email: string) => Promise<boolean>;
-  register: (name: string, email: string) => Promise<boolean>;
+  login: (email: string, password?: string) => Promise<boolean>;
+  register: (name: string, email: string, password?: string) => Promise<boolean>;
+  loginWithGoogle: (fallbackInfo?: { name?: string; email?: string; photoURL?: string }) => Promise<boolean>;
+  requestPasswordReset: (email: string) => Promise<PasswordResetResult>;
+  verifyResetToken: (email: string, token: string) => Promise<StudentUser>;
+  resetUserPassword: (email: string, token: string, newPassword: string) => Promise<boolean>;
   logout: () => void;
   switchRole: (role: 'student' | 'admin') => void;
+
+  // Theme (Dark / Light Mode)
+  theme: 'light' | 'dark';
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
 
   // Search
   isSearchOpen: boolean;
@@ -178,9 +196,10 @@ interface AppContextType {
   addQuestion: (q: Question) => void;
   updateQuestion: (id: string, updates: Partial<Question>) => void;
   deleteQuestion: (id: string) => void;
+  clearModelQuestions: (modelId: string) => Promise<void>;
 
   // Excel / CSV Import & Export with non-duplication
-  importQuestionsBatch: (newQuestions: Question[]) => { added: number; updated: number };
+  importQuestionsBatch: (newQuestions: Question[]) => Promise<{ added: number; updated: number }>;
   exportQuestionsToExcel: (modelId?: string, range?: { start: number; end: number }) => void;
   exportQuestionsToCsv: (modelId?: string, range?: { start: number; end: number }) => void;
   exportAttemptsToExcel: () => void;
@@ -205,6 +224,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
 
   // Cloud Sync & In-progress tracking
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
   const [activeInProgressExamPrompt, setActiveInProgressExamPrompt] = useState<ExamAttempt | null>(null);
@@ -224,6 +244,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activityLogs, setActivityLogs] = useState<ActivityLogItem[]>(INITIAL_ACTIVITY_LOGS);
   const [students, setStudents] = useState<StudentUser[]>([]);
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+
+  // Theme (Dark / Light Mode)
+  const THEME_STORAGE_KEY = 'stepguide_theme';
+
+  const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY);
+      if (stored === 'light' || stored === 'dark') {
+        return stored;
+      }
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+      }
+    }
+    return 'light';
+  });
+
+  const applyTheme = (targetTheme: 'light' | 'dark') => {
+    setThemeState(targetTheme);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(THEME_STORAGE_KEY, targetTheme);
+      const root = document.documentElement;
+      if (targetTheme === 'dark') {
+        root.classList.add('dark');
+        root.setAttribute('data-theme', 'dark');
+        root.style.colorScheme = 'dark';
+      } else {
+        root.classList.remove('dark');
+        root.setAttribute('data-theme', 'light');
+        root.style.colorScheme = 'light';
+      }
+    }
+  };
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+  };
 
   // Active Exam state
   const [currentAttempt, setCurrentAttempt] = useState<ExamAttempt | null>(null);
@@ -284,26 +346,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 1. Models & Questions
       try {
         const cloudModels = await loadModelsFromDb();
-        if (cloudModels && cloudModels.length > 0) {
-          setModels(cloudModels);
-        } else {
-          for (const m of INITIAL_MODELS) {
-            saveModelToDb(m).catch(() => {});
-          }
+        // Strictly filter to official models 05 through 51
+        const validCloudModels = (cloudModels || []).filter((m) => m.number >= 5 && m.number <= 51);
+        const existingIds = new Set(validCloudModels.map((m) => m.id));
+        const missingModels = INITIAL_MODELS.filter((m) => !existingIds.has(m.id));
+
+        let allModels = [...validCloudModels];
+        if (missingModels.length > 0) {
+          saveModelsBatch(missingModels).catch((e) => console.error('Error saving missing models to Firestore:', e));
+          allModels = [...allModels, ...missingModels];
         }
+
+        // Strictly order 05 through 51
+        allModels.sort((a, b) => a.number - b.number);
+        setModels(allModels);
       } catch (err) {
         console.warn('Using initial models on boot:', err);
+        setModels(INITIAL_MODELS);
       }
 
       try {
         const cloudQuestions = await loadQuestionsFromDb();
-        if (cloudQuestions && cloudQuestions.length > 0) {
-          setQuestions(cloudQuestions);
-        } else {
-          saveQuestionsBatch(INITIAL_QUESTIONS).catch(() => {});
+        // Remove any old mock questions from previous template test runs
+        const isMockQuestion = (q: Question) =>
+          q.id.startsWith('test-') ||
+          q.id.startsWith('q-51-0') ||
+          q.id.startsWith('q-50-0') ||
+          q.id.startsWith('q-49-0') ||
+          q.id.startsWith('q-48-0') ||
+          q.id.startsWith('mock-');
+
+        const realQuestions = (cloudQuestions || []).filter((q) => !isMockQuestion(q));
+        const mockQuestions = (cloudQuestions || []).filter((q) => isMockQuestion(q));
+
+        // Purge mock questions from Firestore in background
+        if (mockQuestions.length > 0) {
+          mockQuestions.forEach((mq) => deleteQuestionFromDb(mq.id).catch(() => {}));
         }
+
+        setQuestions(realQuestions);
+
+        // Update each model's totalQuestions to match real question count
+        setModels((prevModels) =>
+          prevModels.map((m) => {
+            const count = realQuestions.filter((q) => q.modelId === m.id).length;
+            return { ...m, totalQuestions: count };
+          })
+        );
       } catch (err) {
         console.warn('Using initial questions on boot:', err);
+        setQuestions([]);
       }
 
       // 2. Ready plans from Firestore (or fallback to initial)
@@ -378,15 +470,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           } else {
             // Account not found, remove invalid session pointer
             localStorage.removeItem(SESSION_POINTER_KEY);
+            setCurrentUser(null);
           }
           reportSyncSuccess();
         } catch (e) {
           console.warn('Could not load session from Firestore on boot:', e);
           reportSyncFailure(e);
         }
-      } else if (savedEmail?.includes('abdullah.step@example.com')) {
-        localStorage.removeItem(SESSION_POINTER_KEY);
+      } else {
+        if (savedEmail) localStorage.removeItem(SESSION_POINTER_KEY);
+        setCurrentUser(null);
       }
+      setIsSessionLoading(false);
     };
 
     bootFromFirestore();
@@ -425,7 +520,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Log in user by email (Fetches real account from Cloud Firestore)
-  const login = async (email: string): Promise<boolean> => {
+  const login = async (email: string, password?: string): Promise<boolean> => {
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) return false;
 
@@ -440,6 +535,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Check if account is disabled
       if (user.status === 'disabled') {
         throw new Error('عذراً، هذا الحساب معطل حالياً من قِبل إدارة المنصة. يرجى مراجعة المشرف.');
+      }
+
+      // If user has password set and password was provided, verify it
+      if (user.password && password && user.password !== password.trim()) {
+        throw new Error('كلمة المرور غير صحيحة. يرجى التأكد منها أو الضغط على «نسيت كلمة المرور؟».');
       }
 
       // Check if this account is an administrator
@@ -469,6 +569,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (authenticatedUser.role === 'admin') {
         setCurrentAdminRole('super_admin');
         loadAllStudentsFromDb().then(setStudents).catch(console.error);
+        setActiveView('admin');
+      } else {
+        setActiveView('home');
       }
 
       // Load all their real data from Cloud Firestore
@@ -484,25 +587,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Register real student by name and email into Firestore
-  const register = async (name: string, email: string): Promise<boolean> => {
+  const register = async (name: string, email: string, password?: string): Promise<boolean> => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
     if (!cleanEmail || !cleanName) return false;
+
+    if (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@stepguide.sa')) {
+      throw new Error('يرجى استخدام حساب Gmail للتسجيل.');
+    }
 
     reportSyncStart();
     try {
       const existing = await findUserByEmail(cleanEmail);
       if (existing) {
-        return login(cleanEmail);
+        return login(cleanEmail, password);
       }
 
-      const isAdmin = cleanEmail.includes('admin');
+      const isAdmin =
+        cleanEmail === 'admin@stepguide.sa' ||
+        cleanEmail.endsWith('@stepguide.sa') ||
+        admins.some((a) => a.email.toLowerCase() === cleanEmail);
+
       const newUserId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const newUser: StudentUser = {
         id: newUserId,
         name: cleanName,
         email: cleanEmail,
+        password: password?.trim() || undefined,
+        authProvider: 'password',
         role: isAdmin ? 'admin' : 'student',
+        status: 'active',
         avatar: '🎓',
         joinedDate: new Date().toISOString().split('T')[0],
         targetScore: 85,
@@ -515,20 +629,184 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentUser(newUser);
       localStorage.setItem(SESSION_POINTER_KEY, newUser.email);
 
-      if (newUser.role === 'admin') {
-        setCurrentAdminRole('super_admin');
-      }
-
       // Initialize real empty attempts, mistakes and plan for new student
       setAttempts([]);
       setMistakes([]);
       setStudyPlan(null);
       setActiveInProgressExamPrompt(null);
 
+      if (newUser.role === 'admin') {
+        setCurrentAdminRole('super_admin');
+        loadAllStudentsFromDb().then(setStudents).catch(console.error);
+        setActiveView('admin');
+      } else {
+        setActiveView('home');
+      }
+
       setIsAuthModalOpen(false);
       reportSyncSuccess();
       return true;
     } catch (err) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  // Google Authentication: Sign in or Register using Google account safely
+  const loginWithGoogle = async (
+    fallbackInfo?: { name?: string; email?: string; photoURL?: string }
+  ): Promise<boolean> => {
+    reportSyncStart();
+    try {
+      let email = '';
+      let name = '';
+      let photoURL = '';
+
+      if (fallbackInfo && fallbackInfo.email) {
+        email = fallbackInfo.email.trim().toLowerCase();
+        name = (fallbackInfo.name || '').trim();
+        photoURL = fallbackInfo.photoURL || '';
+      } else {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        const res = await signInWithPopup(auth, provider);
+        email = (res.user.email || '').trim().toLowerCase();
+        name = (res.user.displayName || '').trim();
+        photoURL = res.user.photoURL || '';
+      }
+
+      if (!email) {
+        throw new Error('لم يتم استرجاع البريد الإلكتروني من حساب Google.');
+      }
+
+      if (!email.endsWith('@gmail.com') && !email.endsWith('@googlemail.com') && !email.endsWith('@stepguide.sa')) {
+        throw new Error('يرجى استخدام حساب Gmail للتسجيل.');
+      }
+
+      // Check if user already exists in Firestore database
+      const existingUser = await findUserByEmail(email);
+
+      if (existingUser) {
+        // Existing user: Do NOT create duplicate! Link and log them in
+        if (existingUser.status === 'disabled') {
+          throw new Error('هذا الحساب معطل حالياً من قبل الإدارة.');
+        }
+
+        const isAdmin =
+          existingUser.role === 'admin' ||
+          email === 'admin@stepguide.sa' ||
+          email.endsWith('@stepguide.sa') ||
+          admins.some((a) => a.email.toLowerCase() === email);
+
+        const authenticatedUser: StudentUser = {
+          ...existingUser,
+          name: existingUser.name || name || email.split('@')[0],
+          role: isAdmin ? 'admin' : 'student',
+          lastActiveDate: new Date().toISOString().split('T')[0],
+          lastLogin: new Date().toISOString(),
+          avatar: photoURL || existingUser.avatar || '🎓',
+        };
+
+        await updateUser(existingUser.id, {
+          lastActiveDate: authenticatedUser.lastActiveDate,
+          lastLogin: authenticatedUser.lastLogin,
+          role: authenticatedUser.role,
+          avatar: authenticatedUser.avatar,
+        });
+
+        setCurrentUser(authenticatedUser);
+        localStorage.setItem(SESSION_POINTER_KEY, authenticatedUser.email);
+
+        if (authenticatedUser.role === 'admin') {
+          setCurrentAdminRole('super_admin');
+          loadAllStudentsFromDb().then(setStudents).catch(console.error);
+          setActiveView('admin');
+        } else {
+          setActiveView('home');
+        }
+
+        await loadUserDataFromFirestore(existingUser.id);
+        setIsAuthModalOpen(false);
+        reportSyncSuccess();
+        return true;
+      } else {
+        // New user: Create student profile in database automatically
+        const isAdmin =
+          email === 'admin@stepguide.sa' ||
+          email.endsWith('@stepguide.sa') ||
+          admins.some((a) => a.email.toLowerCase() === email);
+
+        const newUserId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const newUser: StudentUser = {
+          id: newUserId,
+          name: name || email.split('@')[0] || 'طالب STEP',
+          email,
+          role: isAdmin ? 'admin' : 'student',
+          status: 'active',
+          avatar: photoURL || '🎓',
+          joinedDate: new Date().toISOString().split('T')[0],
+          targetScore: 85,
+          studyStreak: 1,
+          lastActiveDate: new Date().toISOString().split('T')[0],
+        };
+
+        await createUser(newUser);
+
+        setCurrentUser(newUser);
+        localStorage.setItem(SESSION_POINTER_KEY, newUser.email);
+
+        // Initialize empty attempts, mistakes, and plan
+        setAttempts([]);
+        setMistakes([]);
+        setStudyPlan(null);
+        setActiveInProgressExamPrompt(null);
+
+        if (newUser.role === 'admin') {
+          setCurrentAdminRole('super_admin');
+          loadAllStudentsFromDb().then(setStudents).catch(console.error);
+          setActiveView('admin');
+        } else {
+          setActiveView('home');
+        }
+
+        setIsAuthModalOpen(false);
+        reportSyncSuccess();
+        return true;
+      }
+    } catch (err: any) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  // Password Recovery Operations
+  const handleRequestPasswordReset = async (email: string): Promise<PasswordResetResult> => {
+    reportSyncStart();
+    try {
+      const res = await requestPasswordReset(email);
+      reportSyncSuccess();
+      return res;
+    } catch (err: any) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  const handleVerifyResetToken = async (email: string, token: string): Promise<StudentUser> => {
+    return verifyResetToken(email, token);
+  };
+
+  const handleResetUserPassword = async (
+    email: string,
+    token: string,
+    newPass: string
+  ): Promise<boolean> => {
+    reportSyncStart();
+    try {
+      const ok = await resetUserPassword(email, token, newPass);
+      reportSyncSuccess();
+      return ok;
+    } catch (err: any) {
       reportSyncFailure(err);
       throw err;
     }
@@ -616,26 +894,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    // Filter questions
+    // Filter questions - STRICTLY belonging to this model only, NEVER mix with other models!
     let examQs: Question[] = [];
     if (type === 'weaknesses') {
       const wrongIds = new Set(mistakes.filter((m) => !m.mastered).map((m) => m.questionId));
       examQs = questions.filter((q) => wrongIds.has(q.id));
-      if (examQs.length < 5) {
-        const fillers = questions.filter((q) => !wrongIds.has(q.id)).slice(0, 5 - examQs.length);
-        examQs = [...examQs, ...fillers];
-      }
     } else if (type === 'quick') {
       examQs = questions.filter((q) => q.modelId === modelId).slice(0, 15);
-      if (examQs.length < 15) examQs = questions.slice(0, 15);
     } else if (type === 'custom' && customConfig) {
       const skills = customConfig.skills || ['grammar', 'reading', 'vocabulary'];
       examQs = questions
-        .filter((q) => skills.includes(q.skill))
+        .filter((q) => q.modelId === modelId && skills.includes(q.skill))
         .slice(0, customConfig.questionCount || 20);
     } else {
+      // Full exam - strictly questions belonging to this model
       examQs = questions.filter((q) => q.modelId === modelId);
-      if (examQs.length === 0) examQs = questions.slice(0, 20);
+    }
+
+    if (examQs.length === 0) {
+      console.warn(`Model ${modelId} has 0 questions. Awaiting admin upload.`);
+      return;
     }
 
     const durationMinutes =
@@ -1218,6 +1496,193 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // ==========================================
+  // Student Management Operations (Admin Only)
+  // ==========================================
+
+  const loadStudents = async () => {
+    if (currentUser?.role !== 'admin') return;
+    setIsLoadingStudents(true);
+    reportSyncStart();
+    try {
+      const list = await loadAllStudentsFromDb();
+      setStudents(list);
+      reportSyncSuccess();
+    } catch (err) {
+      reportSyncFailure(err);
+      console.error('Error loading students in AppContext:', err);
+    } finally {
+      setIsLoadingStudents(false);
+    }
+  };
+
+  const addStudent = async (data: {
+    name: string;
+    email: string;
+    targetScore?: number;
+    status?: 'active' | 'disabled';
+    phone?: string;
+  }): Promise<boolean> => {
+    if (currentUser?.role !== 'admin') throw new Error('غير مصرح: صلاحية المشرف مطلوبة.');
+    const cleanEmail = data.email.trim().toLowerCase();
+    const cleanName = data.name.trim();
+    if (!cleanEmail || !cleanName) return false;
+
+    reportSyncStart();
+    try {
+      const existing = await findUserByEmail(cleanEmail);
+      if (existing) {
+        throw new Error('البريد الإلكتروني مسجل مسبقاً لطالب آخر.');
+      }
+
+      const newId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newStudent: StudentUser = {
+        id: newId,
+        name: cleanName,
+        email: cleanEmail,
+        role: 'student',
+        status: data.status || 'active',
+        targetScore: data.targetScore ?? 85,
+        studyStreak: 0,
+        joinedDate: new Date().toISOString().split('T')[0],
+        lastActiveDate: new Date().toISOString().split('T')[0],
+        avatar: '🎓',
+        phone: data.phone?.trim() || undefined,
+      };
+
+      await createUser(newStudent);
+      setStudents((prev) => [newStudent, ...prev]);
+      addActivityLog(`أضاف المشرف الطالب الجديد: ${cleanName} (${cleanEmail})`, 'student_account');
+      reportSyncSuccess();
+      return true;
+    } catch (err: any) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  const updateStudent = async (userId: string, updates: Partial<StudentUser>): Promise<boolean> => {
+    if (currentUser?.role !== 'admin') throw new Error('غير مصرح: صلاحية المشرف مطلوبة.');
+    reportSyncStart();
+    try {
+      await updateUser(userId, updates);
+      setStudents((prev) =>
+        prev.map((s) => (s.id === userId ? { ...s, ...updates } : s))
+      );
+      const studentName = updates.name || students.find((s) => s.id === userId)?.name || userId;
+      addActivityLog(`عدّل المشرف بيانات الطالب: ${studentName}`, 'student_account');
+      reportSyncSuccess();
+      return true;
+    } catch (err) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  const toggleStudentStatus = async (userId: string): Promise<boolean> => {
+    if (currentUser?.role !== 'admin') throw new Error('غير مصرح: صلاحية المشرف مطلوبة.');
+    const student = students.find((s) => s.id === userId);
+    if (!student) return false;
+
+    const nextStatus: 'active' | 'disabled' = student.status === 'disabled' ? 'active' : 'disabled';
+    reportSyncStart();
+    try {
+      await updateUser(userId, { status: nextStatus });
+      setStudents((prev) =>
+        prev.map((s) => (s.id === userId ? { ...s, status: nextStatus } : s))
+      );
+      addActivityLog(
+        `قام المشرف بـ ${nextStatus === 'active' ? 'تفعيل' : 'تعطيل'} حساب الطالب: ${student.name}`,
+        'student_account'
+      );
+      reportSyncSuccess();
+      return true;
+    } catch (err) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  const deleteStudent = async (userId: string): Promise<boolean> => {
+    if (currentUser?.role !== 'admin') throw new Error('غير مصرح: صلاحية المشرف مطلوبة.');
+    const student = students.find((s) => s.id === userId);
+    reportSyncStart();
+    try {
+      await deleteUserAccount(userId);
+      setStudents((prev) => prev.filter((s) => s.id !== userId));
+      if (student) {
+        addActivityLog(`حذف المشرف حساب الطالب: ${student.name} (${student.email}) وكافة بياناته`, 'student_account');
+      }
+      reportSyncSuccess();
+      return true;
+    } catch (err) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  const batchImportStudents = async (
+    studentsList: Array<{
+      name: string;
+      email: string;
+      targetScore?: number;
+      status?: 'active' | 'disabled';
+      phone?: string;
+    }>,
+    updateExisting: boolean
+  ): Promise<{ added: number; updated: number; skipped: number }> => {
+    if (currentUser?.role !== 'admin') throw new Error('غير مصرح: صلاحية المشرف مطلوبة.');
+    reportSyncStart();
+    try {
+      const formatted: StudentUser[] = studentsList.map((item) => ({
+        id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        name: item.name.trim(),
+        email: item.email.trim().toLowerCase(),
+        role: 'student',
+        status: item.status || 'active',
+        targetScore: item.targetScore ?? 85,
+        studyStreak: 0,
+        joinedDate: new Date().toISOString().split('T')[0],
+        lastActiveDate: new Date().toISOString().split('T')[0],
+        avatar: '🎓',
+        phone: item.phone?.trim() || undefined,
+      }));
+
+      const result = await batchSaveStudents(formatted, updateExisting);
+      await loadStudents();
+      addActivityLog(
+        `استيراد مجمّع: تم إضافة ${result.added} طالب وتحديث ${result.updated} طالب`,
+        'student_account'
+      );
+      reportSyncSuccess();
+      return result;
+    } catch (err) {
+      reportSyncFailure(err);
+      throw err;
+    }
+  };
+
+  const getStudentDetails = async (userId: string) => {
+    const student = students.find((s) => s.id === userId) || null;
+    try {
+      const stats = await loadStudentFullStats(userId);
+      return {
+        student,
+        attempts: stats.attempts,
+        mistakes: stats.mistakes,
+        studyPlan: stats.studyPlan,
+      };
+    } catch (e) {
+      console.error('Error fetching student details:', e);
+      return {
+        student,
+        attempts: [],
+        mistakes: [],
+        studyPlan: null,
+      };
+    }
+  };
+
   // Content Operations (Models & Questions) with Firestore Persistence
   const addModel = (model: ExamModel) => {
     setModels((prev) => [...prev, model]);
@@ -1245,7 +1710,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addQuestion = (q: Question) => {
-    setQuestions((prev) => [q, ...prev]);
+    setQuestions((prev) => {
+      const next = [q, ...prev];
+      const count = next.filter((item) => item.modelId === q.modelId).length;
+      updateModelQuestionsCount(q.modelId, count).catch(console.error);
+      setModels((mPrev) =>
+        mPrev.map((m) => (m.id === q.modelId ? { ...m, totalQuestions: count } : m))
+      );
+      return next;
+    });
     saveQuestionToDb(q).catch(console.error);
     addActivityLog(`إضافة سؤال جديد في قسم ${q.skill}`, 'question');
   };
@@ -1265,56 +1738,104 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteQuestion = (id: string) => {
-    setQuestions((prev) => prev.filter((item) => item.id !== id));
+    const targetQ = questions.find((item) => item.id === id);
+    setQuestions((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      if (targetQ) {
+        const count = next.filter((item) => item.modelId === targetQ.modelId).length;
+        updateModelQuestionsCount(targetQ.modelId, count).catch(console.error);
+        setModels((mPrev) =>
+          mPrev.map((m) => (m.id === targetQ.modelId ? { ...m, totalQuestions: count } : m))
+        );
+      }
+      return next;
+    });
     deleteQuestionFromDb(id).catch(console.error);
     addActivityLog(`حذف السؤال رقم ${id}`, 'question');
   };
 
-  // Excel / CSV Import with Firestore batch saving
-  const importQuestionsBatch = (newQuestions: Question[]) => {
+  // Excel / CSV Import with permanent Firestore batch saving
+  const importQuestionsBatch = async (newQuestions: Question[]): Promise<{ added: number; updated: number }> => {
     let addedCount = 0;
     let updatedCount = 0;
     const toSave: Question[] = [];
 
-    setQuestions((prev) => {
-      const questionMap = new Map<string, Question>();
-      prev.forEach((q) => questionMap.set(q.id, q));
+    const questionMap = new Map<string, Question>();
+    questions.forEach((q) => questionMap.set(q.id, q));
 
-      newQuestions.forEach((inQ) => {
-        if (questionMap.has(inQ.id)) {
-          const updated = { ...inQ, updatedAt: new Date().toISOString() };
-          questionMap.set(inQ.id, updated);
+    newQuestions.forEach((inQ) => {
+      if (questionMap.has(inQ.id)) {
+        const updated = { ...inQ, updatedAt: new Date().toISOString() };
+        questionMap.set(inQ.id, updated);
+        toSave.push(updated);
+        updatedCount++;
+      } else {
+        const existingByText = Array.from(questionMap.values()).find(
+          (item) => item.questionText.trim().toLowerCase() === inQ.questionText.trim().toLowerCase() && item.modelId === inQ.modelId
+        );
+        if (existingByText) {
+          const updated = { ...inQ, id: existingByText.id, updatedAt: new Date().toISOString() };
+          questionMap.set(existingByText.id, updated);
           toSave.push(updated);
           updatedCount++;
         } else {
-          const existingByText = Array.from(questionMap.values()).find(
-            (item) => item.questionText.trim().toLowerCase() === inQ.questionText.trim().toLowerCase()
-          );
-          if (existingByText) {
-            const updated = { ...inQ, id: existingByText.id, updatedAt: new Date().toISOString() };
-            questionMap.set(existingByText.id, updated);
-            toSave.push(updated);
-            updatedCount++;
-          } else {
-            questionMap.set(inQ.id, inQ);
-            toSave.push(inQ);
-            addedCount++;
-          }
+          questionMap.set(inQ.id, inQ);
+          toSave.push(inQ);
+          addedCount++;
         }
-      });
-
-      return Array.from(questionMap.values());
+      }
     });
+
+    const updatedAll = Array.from(questionMap.values());
+    setQuestions(updatedAll);
 
     if (toSave.length > 0) {
       reportSyncStart();
-      saveQuestionsBatch(toSave)
-        .then(() => reportSyncSuccess())
-        .catch((e) => reportSyncFailure(e));
+      try {
+        await saveQuestionsBatch(toSave);
+        reportSyncSuccess();
+
+        // Update totalQuestions for each affected model in state and Firestore
+        const affectedModelIds = Array.from(new Set(toSave.map((q) => q.modelId)));
+        for (const mid of affectedModelIds) {
+          const count = updatedAll.filter((q) => q.modelId === mid).length;
+          updateModelQuestionsCount(mid, count).catch(() => {});
+          setModels((prev) =>
+            prev.map((m) => (m.id === mid ? { ...m, totalQuestions: count } : m))
+          );
+        }
+      } catch (e) {
+        reportSyncFailure(e);
+        throw e;
+      }
     }
 
-    addActivityLog(`استيراد Excel/CSV: تمت إضافة ${addedCount} سؤالاً وتحديث ${updatedCount} سؤالاً في قاعدة البيانات السحابية`, 'import');
+    addActivityLog(
+      `استيراد Excel/CSV: تمت إضافة ${addedCount} سؤالاً وتحديث ${updatedCount} سؤالاً في قاعدة البيانات السحابية`,
+      'import'
+    );
     return { added: addedCount, updated: updatedCount };
+  };
+
+  // Clear all questions for a specific model (permanent Firestore deletion)
+  const clearModelQuestions = async (modelId: string): Promise<void> => {
+    reportSyncStart();
+    try {
+      const toDelete = questions.filter((q) => q.modelId === modelId);
+      for (const q of toDelete) {
+        await deleteQuestionFromDb(q.id);
+      }
+      setQuestions((prev) => prev.filter((q) => q.modelId !== modelId));
+      await updateModelQuestionsCount(modelId, 0);
+      setModels((prev) =>
+        prev.map((m) => (m.id === modelId ? { ...m, totalQuestions: 0 } : m))
+      );
+      reportSyncSuccess();
+      addActivityLog(`حذف جميع أسئلة النموذج ${modelId}`, 'question');
+    } catch (err) {
+      reportSyncFailure(err);
+      throw err;
+    }
   };
 
   // Real Excel Export using SheetJS (.xlsx)
@@ -1528,6 +2049,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        isSessionLoading,
         currentUser,
         models,
         questions,
@@ -1580,8 +2102,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuthModalMode,
         login,
         register,
+        loginWithGoogle,
+        requestPasswordReset: handleRequestPasswordReset,
+        verifyResetToken: handleVerifyResetToken,
+        resetUserPassword: handleResetUserPassword,
         logout,
         switchRole,
+        theme,
+        setTheme: applyTheme,
+        toggleTheme,
         isSearchOpen,
         setIsSearchOpen,
         currentAdminRole,
@@ -1591,12 +2120,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleAdminStatus,
         deleteAdmin,
         addActivityLog,
+        students,
+        isLoadingStudents,
+        loadStudents,
+        addStudent,
+        updateStudent,
+        toggleStudentStatus,
+        deleteStudent,
+        batchImportStudents,
+        getStudentDetails,
         addModel,
         updateModel,
         deleteModel,
         addQuestion,
         updateQuestion,
         deleteQuestion,
+        clearModelQuestions,
         importQuestionsBatch,
         exportQuestionsToExcel,
         exportQuestionsToCsv,

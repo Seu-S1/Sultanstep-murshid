@@ -18,7 +18,7 @@ import {
 import { ExamAttempt, ExamModel } from '../types';
 
 export const ModelsLibraryView: React.FC = () => {
-  const { models, attempts, startExam, resumeExam, viewAttemptResult } = useApp();
+  const { models, questions, attempts, startExam, resumeExam, viewAttemptResult, currentUser, setActiveView } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'not_started' | 'in_progress' | 'completed'>('all');
@@ -66,21 +66,23 @@ export const ModelsLibraryView: React.FC = () => {
     };
   };
 
-  // Filtered models
+  // Filtered models - strictly ordered ascending from 05 to 51
   const filteredModels = useMemo(() => {
-    return models.filter((model) => {
-      const matchesSearch =
-        model.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        model.number.toString().includes(searchQuery) ||
-        model.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return models
+      .filter((model) => {
+        const matchesSearch =
+          model.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          model.number.toString().includes(searchQuery) ||
+          model.description.toLowerCase().includes(searchQuery.toLowerCase());
 
-      if (!matchesSearch) return false;
+        if (!matchesSearch) return false;
 
-      const summary = getModelSummary(model.id);
-      if (statusFilter !== 'all' && summary.status !== statusFilter) return false;
+        const summary = getModelSummary(model.id);
+        if (statusFilter !== 'all' && summary.status !== statusFilter) return false;
 
-      return true;
-    });
+        return true;
+      })
+      .sort((a, b) => a.number - b.number);
   }, [models, searchQuery, statusFilter, attempts]);
 
   // Attempts list for modal
@@ -216,29 +218,42 @@ export const ModelsLibraryView: React.FC = () => {
                   </p>
 
                   {/* Question count & metadata */}
-                  <div className="py-2.5 border-t border-slate-100 text-xs text-slate-600 space-y-1">
-                    <div className="flex items-center gap-2 font-medium text-slate-800">
-                      <span className="font-bold tabular-nums">{model.totalQuestions}</span>
-                      <span>سؤالاً</span>
-                      <span className="text-slate-300" aria-hidden="true">·</span>
-                      <span className="tabular-nums">{model.durationMinutes}</span>
-                      <span>دقيقة</span>
-                    </div>
+                  {(() => {
+                    const qCount = questions.filter((q) => q.modelId === model.id).length;
+                    return (
+                      <div className="py-2.5 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 space-y-1">
+                        <div className="flex items-center gap-2 font-medium">
+                          {qCount > 0 ? (
+                            <>
+                              <span className="font-bold tabular-nums text-slate-900 dark:text-white">{qCount}</span>
+                              <span>سؤالاً مسجلاً</span>
+                            </>
+                          ) : (
+                            <span className="text-amber-700 dark:text-amber-400 font-semibold text-[11px]">
+                              0 سؤال (فارغ - بانتظار رفع ملف النموذج)
+                            </span>
+                          )}
+                          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                          <span className="tabular-nums">{model.durationMinutes}</span>
+                          <span>دقيقة</span>
+                        </div>
 
-                    <div className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
-                      <span>Reading</span>
-                      <span aria-hidden="true">·</span>
-                      <span>Listening</span>
-                      <span aria-hidden="true">·</span>
-                      <span>Grammar</span>
-                      <span aria-hidden="true">·</span>
-                      <span>Vocabulary</span>
-                    </div>
-                  </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap">
+                          <span>Reading</span>
+                          <span aria-hidden="true">·</span>
+                          <span>Listening</span>
+                          <span aria-hidden="true">·</span>
+                          <span>Grammar</span>
+                          <span aria-hidden="true">·</span>
+                          <span>Vocabulary</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Bottom Action Area */}
-                <div className="pt-4 mt-2 border-t border-slate-100 space-y-2">
+                <div className="pt-4 mt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
                   {summary.status === 'in_progress' && summary.attemptId ? (
                     <div className="flex items-center gap-2">
                       <button
@@ -251,7 +266,7 @@ export const ModelsLibraryView: React.FC = () => {
 
                       <button
                         onClick={() => startExam(model.id, 'full', undefined, true)}
-                        className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                        className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer"
                         title="بدء محاولة جديدة"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
@@ -273,22 +288,44 @@ export const ModelsLibraryView: React.FC = () => {
                         {/* View Previous Attempts */}
                         <button
                           onClick={() => setSelectedModelForAttempts(model)}
-                          className="py-2.5 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                          className="py-2.5 px-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
-                          <History className="w-3.5 h-3.5 text-slate-600" />
+                          <History className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
                           <span>المحاولات السابقة ({summary.attemptsCount})</span>
                         </button>
                       </div>
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => startExam(model.id, 'full')}
-                      className="w-full py-2.5 px-4 bg-blue-950 hover:bg-blue-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
-                    >
-                      <span>ابدأ النموذج</span>
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                  ) : (() => {
+                    const qCount = questions.filter((q) => q.modelId === model.id).length;
+                    if (qCount === 0) {
+                      return currentUser?.role === 'admin' ? (
+                        <button
+                          onClick={() => setActiveView('admin')}
+                          className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer border border-dashed border-slate-300 dark:border-slate-700"
+                        >
+                          <span>رفع ملف هذا النموذج (لوحة المشرف)</span>
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          disabled
+                          className="w-full py-2.5 px-4 bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 rounded-xl text-xs font-medium flex items-center justify-center gap-2 cursor-not-allowed border border-slate-200 dark:border-slate-800"
+                          title="لم يتم رفع أسئلة هذا النموذج بعد"
+                        >
+                          <span>النموذج فارغ حالياً (بانتظار المشرف)</span>
+                        </button>
+                      );
+                    }
+                    return (
+                      <button
+                        onClick={() => startExam(model.id, 'full')}
+                        className="w-full py-2.5 px-4 bg-blue-950 hover:bg-blue-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
+                      >
+                        <span>ابدأ النموذج ({qCount} سؤال)</span>
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             );

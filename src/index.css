@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
 @layer base {
   :root {
     --font-arabic: 'IBM Plex Sans Arabic', 'Tajawal', system-ui, -apple-system, sans-serif;
@@ -11,6 +13,14 @@
     background-color: #F8FAFC;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .dark body,
+  html.dark body,
+  [data-theme="dark"] body {
+    color: #F1F5F9;
+    background-color: #090D16;
   }
 }
 
@@ -24,13 +34,25 @@
   background: #F1F5F9;
 }
 
+.dark ::-webkit-scrollbar-track {
+  background: #0F172A;
+}
+
 ::-webkit-scrollbar-thumb {
   background: #CBD5E1;
   border-radius: 9999px;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
 ::-webkit-scrollbar-thumb:hover {
   background: #94A3B8;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 /* Tabular figures for numbers and timers */
@@ -45,3 +67,143 @@
 .hover-lift:hover {
   transform: translateY(-2px);
 }
+
+/* ========================================================
+   Comprehensive Academic Dark Mode Theme (Eye-Strain Relief)
+   ======================================================== */
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Dark mode surface elevations & cards */
+.dark .bg-white:not([data-keep-light]) {
+  background-color: #0F172A;
+}
+
+.dark .bg-slate-50:not([data-keep-light]) {
+  background-color: #090D16;
+}
+
+.dark .bg-slate-100:not([data-keep-light]) {
+  background-color: #1E293B;
+}
+
+.dark .bg-slate-200:not([data-keep-light]) {
+  background-color: #334155;
+}
+
+/* Dark borders */
+.dark .border-slate-100:not([data-keep-light]) {
+  border-color: #1E293B;
+}
+
+.dark .border-slate-200:not([data-keep-light]),
+.dark .border-slate-200\/70:not([data-keep-light]),
+.dark .border-slate-200\/80:not([data-keep-light]),
+.dark .border-slate-200\/90:not([data-keep-light]) {
+  border-color: #1E293B;
+}
+
+.dark .border-slate-300:not([data-keep-light]) {
+  border-color: #334155;
+}
+
+/* Dark text contrasts */
+.dark .text-slate-950:not([data-keep-light]),
+.dark .text-slate-900:not([data-keep-light]) {
+  color: #F8FAFC;
+}
+
+.dark .text-slate-800:not([data-keep-light]) {
+  color: #F1F5F9;
+}
+
+.dark .text-slate-700:not([data-keep-light]) {
+  color: #E2E8F0;
+}
+
+.dark .text-slate-600:not([data-keep-light]) {
+  color: #CBD5E1;
+}
+
+.dark .text-slate-500:not([data-keep-light]) {
+  color: #94A3B8;
+}
+
+/* Dark mode inputs, textareas, selects */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([data-keep-light]),
+.dark textarea:not([data-keep-light]),
+.dark select:not([data-keep-light]) {
+  background-color: #0c1322;
+  color: #F8FAFC;
+  border-color: #334155;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748B;
+}
+
+/* Dark mode academic accent surfaces */
+.dark .bg-blue-50:not([data-keep-light]),
+.dark .bg-blue-50\/70:not([data-keep-light]),
+.dark .bg-blue-50\/80:not([data-keep-light]) {
+  background-color: rgba(30, 58, 138, 0.25);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.dark .text-blue-950:not([data-keep-light]),
+.dark .text-blue-900:not([data-keep-light]) {
+  color: #93C5FD;
+}
+
+.dark .bg-emerald-50:not([data-keep-light]),
+.dark .bg-emerald-50\/80:not([data-keep-light]),
+.dark .bg-emerald-50\/90:not([data-keep-light]) {
+  background-color: rgba(6, 78, 59, 0.3);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.dark .text-emerald-950:not([data-keep-light]),
+.dark .text-emerald-900:not([data-keep-light]),
+.dark .text-emerald-800:not([data-keep-light]) {
+  color: #6EE7B7;
+}
+
+.dark .bg-rose-50:not([data-keep-light]),
+.dark .bg-rose-50\/80:not([data-keep-light]),
+.dark .bg-rose-50\/90:not([data-keep-light]) {
+  background-color: rgba(136, 19, 55, 0.3);
+  border-color: rgba(244, 63, 94, 0.3);
+}
+
+.dark .text-rose-950:not([data-keep-light]),
+.dark .text-rose-900:not([data-keep-light]),
+.dark .text-rose-800:not([data-keep-light]) {
+  color: #FDA4AF;
+}
+
+.dark .bg-amber-50:not([data-keep-light]),
+.dark .bg-amber-50\/80:not([data-keep-light]) {
+  background-color: rgba(120, 53, 15, 0.3);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.dark .text-amber-950:not([data-keep-light]),
+.dark .text-amber-900:not([data-keep-light]),
+.dark .text-amber-800:not([data-keep-light]) {
+  color: #FDE68A;
+}
+
+/* Hero and gradient cards in dark mode */
+.dark .from-white {
+  --tw-gradient-from: #090D16 var(--tw-gradient-from-position);
+}
+.dark .via-slate-50 {
+  --tw-gradient-stops: var(--tw-gradient-via-position, ) #0c1322, var(--tw-gradient-to);
+}
+.dark .to-white {
+  --tw-gradient-to: #090D16 var(--tw-gradient-to-position);
+}
+

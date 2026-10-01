@@ -9,6 +9,10 @@
         "name": { "type": "string" },
         "email": { "type": "string" },
         "role": { "type": "string", "enum": ["student", "admin"] },
+        "password": { "type": "string" },
+        "authProvider": { "type": "string" },
+        "resetToken": { "type": "string" },
+        "resetTokenExpires": { "type": "number" },
         "targetScore": { "type": "number" },
         "studyStreak": { "type": "number" },
         "joinedDate": { "type": "string" },
@@ -86,6 +90,39 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "title", "durationDays", "dailyHours"]
+    },
+    "ExamModel": {
+      "title": "Exam Model",
+      "description": "Official STEP exam model (05 to 51)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": "number" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "totalQuestions": { "type": "number" },
+        "durationMinutes": { "type": "number" },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "isRecent": { "type": "boolean" }
+      },
+      "required": ["id", "number", "title"]
+    },
+    "Question": {
+      "title": "Exam Question",
+      "description": "Question permanently stored in Firestore associated with a model",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "modelId": { "type": "string" },
+        "skill": { "type": "string" },
+        "questionText": { "type": "string" },
+        "correctOption": { "type": "string" },
+        "explanation": { "type": "string" },
+        "difficulty": { "type": "string" },
+        "passage": { "type": "string" },
+        "passageTitle": { "type": "string" }
+      },
+      "required": ["id", "modelId", "questionText", "correctOption"]
     }
   },
   "firestore": {
@@ -108,6 +145,14 @@
     "/readyPlans/{planId}": {
       "schema": { "$ref": "#/entities/ReadyStudyPlan" },
       "description": "Admin published study schedules"
+    },
+    "/models/{modelId}": {
+      "schema": { "$ref": "#/entities/ExamModel" },
+      "description": "STEP official models 05 through 51"
+    },
+    "/questions/{questionId}": {
+      "schema": { "$ref": "#/entities/Question" },
+      "description": "Real exam questions uploaded by admin"
     }
   }
 }
